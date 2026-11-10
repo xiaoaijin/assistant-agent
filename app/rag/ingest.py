@@ -14,6 +14,7 @@ from .store import (
     best_similarity_active,
     delete_chunks,
     insert_chunk,
+    set_conflict_with,
     upsert_document,
 )
 
@@ -38,6 +39,7 @@ async def ingest_document(
     vectors = await embedder.embed([c.text for c in chunks])
 
     stored, skipped, has_conflict = 0, 0, False
+    conflicted_docs: list[str] = []
     async with db.pool().acquire() as conn:
         async with conn.transaction():
             doc = await upsert_document(
@@ -45,20 +47,23 @@ async def ingest_document(
             )
             await delete_chunks(conn, str(doc["id"]))
             for chunk, vec in zip(chunks, vectors):
-                verdict = conflict.classify_chunk_conflict(
-                    await best_similarity_active(conn, shop_id, source_key, vec)
-                )
+                score, neighbor_doc = await best_similarity_active(conn, shop_id, source_key, vec)
+                verdict = conflict.classify_chunk_conflict(score)
                 if verdict == "duplicate":
                     skipped += 1
                     continue
                 if verdict == "conflict":
                     has_conflict = True
+                    if neighbor_doc and neighbor_doc not in conflicted_docs:
+                        conflicted_docs.append(neighbor_doc)
                 await insert_chunk(
                     conn, str(doc["id"]), chunk.seq, chunk.text, chunk.title_path,
                     chunk.meta.get("page"), vec, chunk.char_count,
                     chunker.CHUNKER_VERSION,
                 )
                 stored += 1
+            if has_conflict:
+                await set_conflict_with(conn, str(doc["id"]), conflicted_docs)
             status = (
                 "duplicate" if stored == 0
                 else "pending_review" if has_conflict

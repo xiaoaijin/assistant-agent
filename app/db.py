@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
     filename     TEXT NOT NULL DEFAULT '',
     status       TEXT NOT NULL DEFAULT 'active',
                  -- active | pending_review | rejected | superseded
+    conflict_with JSONB NOT NULL DEFAULT '[]',  -- 触发冲突的旧文档 id 列表
     created_by   TEXT NOT NULL DEFAULT '',
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -131,6 +132,9 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
 
 -- 检索索引：余弦距离（pgvector 原生 ivfflat/hnsw 由 migration 决定，先用顺序扫描+索引可选）
 CREATE INDEX IF NOT EXISTS ix_chunks_document ON knowledge_chunks (document_id);
+
+-- 已存在的库补列（新库由上面的 CREATE TABLE 直接带全）
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS conflict_with JSONB NOT NULL DEFAULT '[]';
 """
 
 

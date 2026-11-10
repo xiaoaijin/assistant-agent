@@ -77,18 +77,29 @@ async def insert_chunk(
 
 async def best_similarity_active(
     conn: Any, shop_id: str, exclude_source_key: str, embedding: list[float],
-) -> float | None:
-    """该店铺 active 文档切片中与向量的最高余弦相似度；无近邻返回 None。"""
+) -> tuple[float | None, str | None]:
+    """该店铺 active 文档切片中与向量的最高余弦相似度及所属文档；无近邻返回 (None, None)。"""
     row = await conn.fetchrow(
         """
-        SELECT MAX(1 - (kc.embedding <=> $1::vector)) AS score
+        SELECT 1 - (kc.embedding <=> $1::vector) AS score, kd.id AS doc_id
         FROM knowledge_chunks kc
         JOIN knowledge_documents kd ON kd.id = kc.document_id
         WHERE kd.shop_id = $2 AND kd.status = 'active' AND kd.source_key <> $3
+        ORDER BY kc.embedding <=> $1::vector
+        LIMIT 1
         """,
         to_pgvector(embedding), db.uuid(shop_id), exclude_source_key,
     )
-    return float(row["score"]) if row and row["score"] is not None else None
+    if row is None:
+        return None, None
+    return float(row["score"]), str(row["doc_id"])
+
+
+async def set_conflict_with(conn: Any, document_id: str, doc_ids: list[str]) -> None:
+    await conn.execute(
+        "UPDATE knowledge_documents SET conflict_with = $2::jsonb WHERE id = $1",
+        db.uuid(document_id), doc_ids,
+    )
 
 
 async def get_document(document_id: str) -> Any:

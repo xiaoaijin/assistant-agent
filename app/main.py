@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from . import approvals, db, loop, state, store
+from .admin_api import router as admin_router
 from .errors import Conflict, ConversationTransferred, NotFound
 
 
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="电商客服助手", lifespan=lifespan)
+app.include_router(admin_router)
 
 
 @app.exception_handler(NotFound)
