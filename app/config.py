@@ -18,5 +18,12 @@ class Settings(BaseSettings):
 
     default_refund_quota: float = 100.0
 
+    # RAG（ADR-0005）：通义 text-embedding-v3，1024 维，经 LiteLLM
+    embedding_model: str = "dashscope/text-embedding-v3"
+    embedding_dim: int = 1024
+    search_top_k: int = 5
+    search_min_score: float | None = None  # 余弦阈值，召回评估后启用
+    admin_secret: str = "dev-admin-secret-change-me"
+
 
 settings = Settings()

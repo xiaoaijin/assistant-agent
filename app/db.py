@@ -14,9 +14,28 @@ from .config import settings
 _pool: asyncpg.Pool | None = None
 
 SCHEMA = """
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 店铺（CONTEXT.md 知识库按店铺隔离；ADR-0005）
+CREATE TABLE IF NOT EXISTS shops (
+    id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name     TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 管理端账号：shop_id 为空即平台超管，可跨店（ADR-0005）
+CREATE TABLE IF NOT EXISTS admin_users (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username      TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    shop_id       UUID REFERENCES shops(id),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS conversations (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_id TEXT NOT NULL,
+    shop_id     UUID NOT NULL REFERENCES shops(id),
     channel     TEXT NOT NULL DEFAULT 'web',
     status      TEXT NOT NULL DEFAULT 'ai_serving',  -- ai_serving | transferred
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -79,6 +98,39 @@ CREATE TABLE IF NOT EXISTS quotas (
 INSERT INTO quotas (action_type, amount_limit)
 VALUES ('refund', 100)
 ON CONFLICT (action_type) DO NOTHING;
+
+-- 知识文档与切片（ADR-0005）：原文必须落库（管理页展示/编辑、换模型重切片重灌）
+CREATE TABLE IF NOT EXISTS knowledge_documents (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    shop_id      UUID NOT NULL REFERENCES shops(id),
+    content_type TEXT NOT NULL,               -- faq | policy | ticket | ...
+    title        TEXT NOT NULL,
+    source_key   TEXT NOT NULL,               -- 幂等 upsert 键（同 key 重传 = 更新）
+    raw          BYTEA NOT NULL,              -- 原始文件字节（重切片依据）
+    filename     TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'active',
+                 -- active | pending_review | rejected | superseded
+    created_by   TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (shop_id, source_key)
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id     UUID NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
+    seq             INT  NOT NULL,
+    text            TEXT NOT NULL,
+    title_path      TEXT NOT NULL DEFAULT '',
+    page            INT,
+    embedding       vector(1024) NOT NULL,
+    char_count      INT  NOT NULL,
+    chunker_version INT  NOT NULL,
+    UNIQUE (document_id, seq)
+);
+
+-- 检索索引：余弦距离（pgvector 原生 ivfflat/hnsw 由 migration 决定，先用顺序扫描+索引可选）
+CREATE INDEX IF NOT EXISTS ix_chunks_document ON knowledge_chunks (document_id);
 """
 
 
