@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>客服助手循环状态机原型（PROTOTYPE — 用后即弃）</title>
+<style>
+  :root { --accent: #0d7a6f; --ink: #1a2224; --muted: #6b7778; --line: #dde4e4; --surface: #f6f8f8; --warn: #b3541e; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; color: var(--ink); background: #fff; line-height: 1.6; padding: 32px 24px 80px; max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .proto-tag { display: inline-block; background: var(--warn); color: #fff; font-size: 12px; padding: 2px 10px; border-radius: 10px; margin-bottom: 12px; }
+  .question { color: var(--muted); font-size: 14px; max-width: 780px; margin-bottom: 24px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+  h2 { font-size: 15px; margin: 18px 0 10px; color: var(--accent); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .field { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+  .field:last-child { border-bottom: none; }
+  .field .k { color: var(--muted); }
+  .field .v { font-weight: 600; text-align: right; }
+  .v.hot { color: var(--accent); }
+  .v.bad { color: var(--warn); }
+  .just-changed { animation: flash 1.2s ease-out; }
+  @keyframes flash { 0% { background: #e8f5f3; } 100% { background: transparent; } }
+  .msglog { font-size: 13px; max-height: 260px; overflow-y: auto; }
+  .msglog .m { padding: 6px 10px; margin: 4px 0; border-radius: 8px; background: #fff; border: 1px solid var(--line); }
+  .msglog .m.sys { color: var(--muted); background: transparent; border-style: dashed; }
+  .msglog .m .who { font-weight: 700; color: var(--accent); margin-right: 8px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--accent); background: #fff; color: var(--accent); cursor: pointer; }
+  button:hover { background: var(--accent); color: #fff; }
+  button.seat { border-color: #5563b8; color: #5563b8; }
+  button.seat:hover { background: #5563b8; color: #fff; }
+  button.sys { border-color: var(--muted); color: var(--muted); border-style: dashed; }
+  button.sys:hover { background: var(--muted); color: #fff; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button:disabled:hover { background: #fff; color: inherit; }
+  button.sys:disabled:hover, button.seat:disabled:hover { background: #fff; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .tabs button { border-color: var(--line); color: var(--ink); }
+  .tabs button.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .walk-desc { font-size: 13px; color: var(--muted); background: var(--surface); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .steps { display: flex; flex-direction: column; gap: 6px; }
+  .steps .step { display: flex; align-items: center; gap: 10px; }
+  .steps .n { width: 22px; height: 22px; border-radius: 50%; background: var(--line); color: var(--ink); font-size: 12px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .steps .n.done { background: var(--accent); color: #fff; }
+  .steps .step.cur .n { outline: 2px solid var(--accent); }
+  .watch { color: var(--accent); font-weight: 600; }
+  .illegal { color: var(--warn); font-size: 13px; min-height: 20px; margin-top: 8px; font-weight: 600; }
+  .footer { margin-top: 36px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+</head>
+<body>
+<span class="proto-tag">PROTOTYPE · 用后即弃 · 状态经内存模拟，不连任何后端</span>
+<h1>客服助手：可恢复循环的状态机推演</h1>
+<p class="question">
+  <strong>本原型回答的问题</strong>：自研可恢复 agent loop 的状态模型，能否无矛盾地承载黄金路径（问物流 → 退款超额 → 待审批 → 批准 → 重入 → 执行），
+  以及三个边界场景——审批中转人工（待审批项随会话移交）、进程崩溃恢复（从落库状态重入）、非法操作拦截。
+  模型在这里被模拟成按钮：每按一次，代表模型/顾客/坐席做了一步。<span class="watch">推演时盯住「循环状态」「落库」「待审批项归属」三个字段的变化。</span>
+</p>
+
+<div class="cols">
+  <div>
+    <h2>当前状态</h2>
+    <div class="panel">
+      <div id="state-panel"></div>
+    </div>
+
+    <h2>消息流</h2>
+    <div class="panel msglog" id="msglog"></div>
+
+    <h2>动作留痕（每一次动作可追溯）</h2>
+    <div class="panel msglog" id="auditlog"></div>
+
+    <h2>自由推演（随意按，违法操作会被拒绝并给出理由）</h2>
+    <div class="buttons" id="free-buttons"></div>
+    <div class="illegal" id="illegal-msg"></div>
+  </div>
+
+  <div>
+    <h2>引导场景</h2>
+    <div class="tabs" id="tabs"></div>
+    <div class="walk-desc" id="walk-desc"></div>
+    <div class="steps" id="walk-steps"></div>
+  </div>
+</div>
+
+<p class="footer">
+  PROTOTYPE — 本文件为一次性原型（mattpocock-skills /prototype 逻辑分支），验证通过后：纯 reducer 模块沉淀为正式 Python 代码，本 HTML 留存于弃用分支。领域词汇见 CONTEXT.md，架构决策见 docs/adr/0001-0004。
+</p>
+
+<script>
+// ============================================================
+// 纯 reducer 模块 —— 这部分是原型真正要沉淀的东西
+// 形状：state × action → state，无 DOM、无副作用
+// ============================================================
+const INITIAL = () => ({
+  conversation: 'ai_serving',        // ai_serving | transferred
+  loop: 'idle',                      // idle | running | exited_pending | exited_transferred | done
+  loopPersisted: false,              // 循环状态是否已落库（ADR-0002 的关键）
+  pending: null,                     // { id, amount, status: pending|approved|rejected|executed, owner: 会话|坐席 }
+  ticket: null,                      // { status: 处理中|等待中|已解决|已关闭 }
+  quota: 100,
+  order: { id: 'A1024', refundable: 500 },
+  seq: 0,
+  messages: [],                      // { who, text, kind: customer|assistant|system }
+  audit: [],                         // 动作留痕：{ n, actor, what }，n 单调递增可追溯
+  auditN: 0,
+  turnSteps: [],                     // 本轮已完成步骤（每步完成即落库；重启重放历史、不重放执行）
+});
+
+function addMsg(s, who, text, kind) {
+  s.messages = [...s.messages, { who, text, kind }];
+  s.seq++;
+}
+
+function act(s, actor, what) {
+  s.auditN++;
+  s.audit = [...s.audit, { n: s.auditN, actor, what }];
+}
+
+function illegal(reason) { return { illegal: reason }; }
+
+function reduce(state, action) {
+  const s = { ...state, lastChanged: null };
+  switch (action.type) {
+
+    case 'ASK_LOGISTICS': {
+      if (s.conversation !== 'ai_serving') return illegal('会话已转人工，顾客消息由坐席回复');
+      act(s, '顾客', '发送消息：询问订单物流');
+      addMsg(s, '顾客', '我的订单 A1024 到哪了？', 'customer');
+      s.loop = 'running'; s.loopPersisted = true; s.turnSteps = [];
+      s.lastChanged = 'loop';
+      addMsg(s, '助手', '[循环启动] 收到消息，决定调用工具查订单', 'system');
+      return s;
+    }
+
+    case 'CALL_TOOL': {
+      if (s.conversation !== 'ai_serving') return illegal('会话已转人工，助手已退出，不能再调用工具');
+      if (s.loop !== 'running') return illegal(`循环未在运行（当前：${s.loop}），无法调用工具`);
+      act(s, '助手', '工具调用 get_order("A1024")');
+      addMsg(s, '助手', '[工具调用] get_order("A1024") → 已发货，可退金额 ¥500', 'system');
+      s.turnSteps = [...s.turnSteps, '查订单'];
+      s.lastChanged = 'turnSteps';
+      return s;
+    }
+
+    case 'REPLY': {
+      if (s.conversation !== 'ai_serving') return illegal('会话已转人工，助手已退出，不能回复');
+      if (s.loop !== 'running') return illegal(`循环未在运行（当前：${s.loop}）`);
+      act(s, '助手', '回复顾客：物流说明');
+      addMsg(s, '助手', '您的订单 A1024 已发货，预计明天送达～', 'assistant');
+      s.turnSteps = [...s.turnSteps, '回复顾客'];
+      s.loop = 'done';                                  // 回合结束
+      s.lastChanged = 'loop';
+      return s;
+    }
+
+    case 'ASK_REFUND': {
+      if (s.conversation !== 'ai_serving') return illegal('会话已转人工，顾客消息由坐席回复');
+      act(s, '顾客', '发送消息：要求退款 ¥500');
+      addMsg(s, '顾客', '这个我不想要了，退我 500 块！', 'customer');
+      s.loop = 'running'; s.loopPersisted = true; s.turnSteps = [];
+      s.lastChanged = 'loop';
+      addMsg(s, '助手', '[循环启动] 顾客要求退款 ¥500，决定调用 create_refund(500)', 'system');
+      return s;
+    }
+
+    case 'QUOTA_CHECK': {
+      if (s.loop !== 'running') return illegal('循环未在运行，没有待判定的操作');
+      if (s.pending && s.pending.status === 'pending') return illegal('已有一笔待审批项未决，新退款需排队（本次推演：拒绝重复创建）');
+      if (action.amount <= s.quota) {
+        act(s, '系统', `额度判定：退款 ¥${action.amount} ≤ 额度 ¥${s.quota} → 直接执行`);
+        addMsg(s, '系统', `退款 ¥${action.amount} 在额度内（额度 ¥${s.quota}），直接执行`, 'system');
+        s.turnSteps = [...s.turnSteps, '额度判定→直接执行退款'];
+        s.loop = 'done';
+        s.lastChanged = 'loop';
+        return s;
+      }
+      // 超额度：生成待审批项，落库，循环退出 —— ADR-0001/0002 的核心转换
+      s.pending = { id: 'PA-' + (s.seq + 1), amount: action.amount, status: 'pending', owner: '会话' };
+      s.loop = 'exited_pending'; s.loopPersisted = true;
+      s.ticket = s.ticket || { status: '处理中' };
+      s.lastChanged = 'pending';
+      act(s, '系统', `额度判定：退款 ¥${action.amount} 超额度 → 生成 ${s.pending.id} 落库，循环退出`);
+      s.turnSteps = [...s.turnSteps, `额度判定→生成 ${s.pending.id}，循环退出`];
+      addMsg(s, '系统', `超额度（¥${s.quota}）→ 生成待审批项 ${s.pending.id} 落库 → 循环退出（状态已持久化）`, 'system');
+      return s;
+    }
+
+    case 'APPROVE': {
+      if (!s.pending || s.pending.status !== 'pending') return illegal('没有待审批项，或已被处理');
+      act(s, '坐席', `批准 ${s.pending.id}（¥${s.pending.amount}），循环重入执行`);
+      s.pending = { ...s.pending, status: 'approved', owner: '坐席' };
+      s.lastChanged = 'pending';
+      addMsg(s, '坐席', `批准 ${s.pending.id}（退款 ¥${s.pending.amount}）`, 'system');
+      // 批准后循环重入：从落库状态恢复，继续执行退款 —— ADR-0002 的重入语义
+      s.loop = 'running'; s.loopPersisted = false;
+      s.lastChanged = 'loop';
+      addMsg(s, '系统', '[循环重入] 从落库状态恢复，执行 create_refund → 成功', 'system');
+      s.pending = { ...s.pending, status: 'executed' };
+      if (s.ticket) s.ticket = { ...s.ticket, status: '已解决' };
+      s.turnSteps = [...s.turnSteps, '退款执行（重入后完成）'];
+      s.loop = 'done';
+      addMsg(s, '系统', '退款执行完毕，关联工单 → 已解决', 'system');
+      return s;
+    }
+
+    case 'REJECT': {
+      if (!s.pending || s.pending.status !== 'pending') return illegal('没有待审批项，或已被处理');
+      act(s, '坐席', `拒绝 ${s.pending.id}`);
+      s.pending = { ...s.pending, status: 'rejected' };
+      s.loop = 'running'; s.loopPersisted = false;
+      s.lastChanged = 'pending';
+      addMsg(s, '坐席', `拒绝 ${s.pending.id}`, 'system');
+      addMsg(s, '助手', '[循环重入] 拿到拒绝结果，回复顾客：抱歉，该退款未通过审核', 'system');
+      s.turnSteps = [...s.turnSteps, '告知顾客拒绝结果'];
+      s.loop = 'done';
+      s.lastChanged = 'loop';
+      return s;
+    }
+
+    case 'COMPLAIN': {
+      if (s.conversation !== 'ai_serving') return illegal('已经在人工会话中了');
+      act(s, '顾客', '发送消息：威胁升级（投诉）');
+      addMsg(s, '顾客', '再不解决我就打 12315 投诉！！', 'customer');
+      s.loop = 'running'; s.loopPersisted = true; s.turnSteps = [];
+      s.lastChanged = 'loop';
+      addMsg(s, '助手', '[意图识别] 命中投诉 → 触发转人工', 'system');
+      return s;
+    }
+
+    case 'TRANSFER': {
+      if (s.conversation !== 'ai_serving') return illegal('会话已转人工');
+      s.conversation = 'transferred';
+      // 关键规则：待审批项随会话移交，不作废（CONTEXT.md）
+      if (s.pending && s.pending.status === 'pending') {
+        s.pending = { ...s.pending, owner: '坐席' };
+        addMsg(s, '系统', `[转人工] 待审批项 ${s.pending.id} 随会话移交（不作废），循环退出（状态已落库）`, 'system');
+      } else {
+        addMsg(s, '系统', '[转人工] 会话移交坐席，助手退出', 'system');
+      }
+      s.loop = 'exited_transferred'; s.loopPersisted = true;
+      s.lastChanged = 'conversation';
+      act(s, '系统', '转人工：会话移交坐席，助手退出' + (s.pending && s.pending.status === 'pending' ? `（待审批项 ${s.pending.id} 随会话移交）` : ''));
+      return s;
+    }
+
+    case 'HAND_BACK': {
+      if (s.conversation !== 'transferred') return illegal('会话不在人工处理中，无需交还');
+      if (s.pending && s.pending.status === 'pending') return illegal(`待审批项 ${s.pending.id} 未决，坐席不能交还（没人兜底的悬挂操作）`);
+      act(s, '坐席', '处理完成，会话交还助手');
+      s.conversation = 'ai_serving';
+      s.loop = 'idle'; s.loopPersisted = false;
+      if (s.ticket && s.ticket.status !== '已解决') s.ticket = { ...s.ticket, status: '已解决' };
+      s.lastChanged = 'conversation';
+      addMsg(s, '系统', '[交还] 坐席处理完成，会话回到助手；顾客下一条消息由助手重新介入（可能是新问题）', 'system');
+      return s;
+    }
+
+    case 'CRASH_RESTART': {
+      if (!s.loopPersisted) return illegal('没有任何已落库的循环历史，无需恢复');
+      act(s, '系统', '进程重启：重放落库历史，已完成步骤不重放执行');
+      const stepsTxt = s.turnSteps.length ? s.turnSteps.join('、') : '（尚无已完成步骤）';
+      if (s.loop === 'done') {
+        addMsg(s, '系统', `[进程重启] 本轮已完结；已落库步骤：${stepsTxt} —— 均不重放，不会重复回复、不会重复退款`, 'system');
+      } else {
+        addMsg(s, '系统', `[进程重启] 从落库历史重建上下文 → 已完成：${stepsTxt}（不重放执行）；循环保持原状态，从未完成的下一步继续`, 'system');
+      }
+      s.lastChanged = null;
+      return s;
+    }
+
+    case 'REOPEN': {
+      if (!s.ticket || s.ticket.status !== '已解决') return illegal('只有已解决的工单才能被顾客回应重开');
+      act(s, '顾客', '回应已解决工单 → 重开');
+      addMsg(s, '顾客', '钱还没到账啊？！', 'customer');
+      s.ticket = { ...s.ticket, status: '处理中' };
+      s.lastChanged = 'ticket';
+      addMsg(s, '系统', '工单重开 → 处理中（业界惯例：已解决后顾客再回应则重开）', 'system');
+      return s;
+    }
+
+    case 'RESET': return { ...INITIAL(), lastChanged: null };
+    default: return state;
+  }
+}
+// ============================================================
+// 以上为纯模块；以下是原型页面（一次性外壳）
+// ============================================================
+const ACTIONS = [
+  { type: 'ASK_LOGISTICS', label: '顾客：问订单物流', cls: '' },
+  { type: 'CALL_TOOL', label: '助手：调工具查订单', cls: '' },
+  { type: 'REPLY', label: '助手：回复顾客', cls: '' },
+  { type: 'ASK_REFUND', label: '顾客：要求退款 ¥500', cls: '' },
+  { type: 'QUOTA_CHECK', label: '系统：额度判定', cls: 'sys' },
+  { type: 'APPROVE', label: '坐席：批准退款', cls: 'seat' },
+  { type: 'REJECT', label: '坐席：拒绝退款', cls: 'seat' },
+  { type: 'HAND_BACK', label: '坐席：处理完成，交还助手', cls: 'seat' },
+  { type: 'COMPLAIN', label: '顾客：发火投诉', cls: '' },
+  { type: 'TRANSFER', label: '系统：转人工', cls: 'sys' },
+  { type: 'CRASH_RESTART', label: '系统：进程重启恢复', cls: 'sys' },
+  { type: 'REOPEN', label: '顾客：再回应（重开工单）', cls: '' },
+  { type: 'RESET', label: '重置', cls: 'sys' },
+];
+
+const WALKTHROUGHS = [
+  {
+    name: '① 黄金路径',
+    desc: '主血管：问物流 → 查订单 → 回复 → 要求退款 500 → 超额度（100）→ 待审批落库、循环退出 → 坐席批准 → 循环重入 → 退款执行、工单解决。关注：循环状态 idle→running→exited_pending→running→done 的完整轨迹。',
+    steps: ['ASK_LOGISTICS', 'CALL_TOOL', 'REPLY', 'ASK_REFUND', 'QUOTA_CHECK', 'APPROVE'],
+  },
+  {
+    name: '② 审批中转人工',
+    desc: '退款待审批期间顾客发火投诉。关注：转人工后，待审批项的「归属」从会话变为坐席（随会话移交、不作废），循环状态变为 exited_transferred 且落库；此时再点「助手：回复顾客」应被拒绝。',
+    steps: ['ASK_REFUND', 'QUOTA_CHECK', 'COMPLAIN', 'TRANSFER', 'REPLY', 'APPROVE'],
+  },
+  {
+    name: '③ 进程崩溃恢复 · 恰好一次',
+    desc: '崩溃可以发生在任何一步之间，恢复随时合法。走两遍：① 查完订单还没回复时崩溃重启 → 已完成步骤「查订单」不重放执行，循环从未完成的下一步继续；② 回复完顾客再崩溃重启 → 本轮已完结，所有步骤只从落库记录读取，绝不重复回复。关注：「本轮已完成步骤」在重启前后完全一致。',
+    steps: ['ASK_LOGISTICS', 'CALL_TOOL', 'CRASH_RESTART', 'REPLY', 'CRASH_RESTART'],
+  },
+  {
+    name: '④ 非法操作试探',
+    desc: '故意制造冲突：待审批未决时再次要求退款（应拒绝重复创建）；转人工后让助手操作（应全部拒绝）；待审批未决时坐席试图交还（应拒绝——没人兜底的悬挂操作）。拦截理由显示在按钮区下方。',
+    steps: ['ASK_REFUND', 'QUOTA_CHECK', 'ASK_REFUND', 'TRANSFER', 'CALL_TOOL', 'HAND_BACK'],
+  },
+  {
+    name: '⑤ 人工处理交还 · 新问题',
+    desc: '转人工后的完整闭环：坐席批准退款 → 处理完成交还助手 → 顾客带着一个新问题回来 → 助手重新介入回复。关注：交还后会话状态回到「助手服务中」，循环回到「空闲」，顾客新消息启动全新一轮循环。',
+    steps: ['ASK_REFUND', 'QUOTA_CHECK', 'TRANSFER', 'APPROVE', 'HAND_BACK', 'ASK_LOGISTICS', 'REPLY'],
+  },
+];
+
+let state = INITIAL();
+let currentWalk = 0, stepIdx = 0;
+
+const $ = id => document.getElementById(id);
+
+function render() {
+  const L = { ai_serving: '助手服务中', transferred: '已转坐席' };
+  const LP = { idle: '空闲', running: '运行中', exited_pending: '已退出（待审批）', exited_transferred: '已退出（已转人工）', done: '完结' };
+  const ps = state.pending ? `${state.pending.id} · ¥${state.pending.amount} · ${state.pending.status} · 归属：${state.pending.owner}` : '无';
+  const ts = state.ticket ? state.ticket.status : '无';
+  const fields = [
+    ['会话状态', L[state.conversation], 'conversation'],
+    ['循环状态', LP[state.loop], 'loop'],
+    ['循环历史已落库', state.loopPersisted ? '✓（重启只重放历史，不重放执行）' : '✗ 无', 'loopPersisted'],
+    ['本轮已完成步骤', state.turnSteps.length ? state.turnSteps.join('、') : '无', 'turnSteps'],
+    ['待审批项', ps, 'pending'],
+    ['工单', ts, 'ticket'],
+    ['退款额度', '¥' + state.quota, null],
+    ['模拟订单', `${state.order.id}（可退 ¥${state.order.refundable}）`, null],
+  ];
+  $('state-panel').innerHTML = fields.map(([k, v, key]) =>
+    `<div class="field"><span class="k">${k}</span><span class="v ${key === state.lastChanged ? 'hot just-changed' : (state.pending && key === 'pending' && state.pending.status === 'pending' ? 'bad' : '')}">${v}</span></div>`).join('');
+  $('msglog').innerHTML = state.messages.slice(-30).map(m =>
+    `<div class="m ${m.kind === 'system' ? 'sys' : ''}"><span class="who">${m.who}</span>${m.text}</div>`).join('') || '<div class="m sys">（暂无消息）</div>';
+  $('msglog').scrollTop = 1e6;
+  $('auditlog').innerHTML = state.audit.slice(-30).map(a =>
+    `<div class="m sys"><span class="who">#${a.n} ${a.actor}</span>${a.what}</div>`).join('') || '<div class="m sys">（暂无动作留痕）</div>';
+  $('auditlog').scrollTop = 1e6;
+  $('free-buttons').innerHTML = ACTIONS.map(a => `<button class="${a.cls}" data-type="${a.type}">${a.label}</button>`).join('');
+  renderWalk();
+}
+
+function renderWalk() {
+  $('tabs').innerHTML = WALKTHROUGHS.map((w, i) => `<button class="${i === currentWalk ? 'on' : ''}" data-walk="${i}">${w.name}</button>`).join('');
+  const w = WALKTHROUGHS[currentWalk];
+  $('walk-desc').textContent = w.desc;
+  $('walk-steps').innerHTML = w.steps.map((t, i) => {
+    const a = ACTIONS.find(x => x.type === t);
+    const done = i < stepIdx, cur = i === stepIdx;
+    return `<div class="step ${cur ? 'cur' : ''}"><span class="n ${done ? 'done' : ''}">${done ? '✓' : i + 1}</span><button data-walkstep="${i}" ${!cur ? 'disabled' : ''}>${a.label}</button></div>`;
+  }).join('') + (stepIdx >= w.steps.length ? '<div class="m sys" style="color:var(--accent);font-weight:600">场景完成 ✓ 对照上面的「关注点」检查最终状态</div>' : '');
+}
+
+function dispatch(action) {
+  const next = reduce(state, action);
+  if (next.illegal) { $('illegal-msg').textContent = '⛔ 拒绝：' + next.illegal; return; }
+  $('illegal-msg').textContent = '';
+  state = next;
+  render();
+}
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  if (b.dataset.type) dispatch({ type: b.dataset.type });
+  else if (b.dataset.walk !== undefined) { currentWalk = +b.dataset.walk; stepIdx = 0; state = INITIAL(); render(); }
+  else if (b.dataset.walkstep !== undefined) { const t = WALKTHROUGHS[currentWalk].steps[+b.dataset.walkstep]; dispatch({ type: t }); stepIdx = +b.dataset.walkstep + 1; render(); }
+});
+
+render();
+</script>
+</body>
+</html>
