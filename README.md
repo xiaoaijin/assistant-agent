@@ -41,9 +41,13 @@ pytest                           # 纯领域逻辑测试（无 DB/LLM）
 ## 黄金路径（curl）
 
 ```bash
-# 1. 建会话
+# 0.（RAG）建店铺 + 管理员，上传知识文档（或用管理页 admin-web）
+SHOP=$(curl -s localhost:8100/api/admin/shops -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'content-type: application/json' -d '{"name":"默认店铺"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+
+# 1. 建会话（shop_id 必填：知识检索按店铺过滤）
 CONV=$(curl -s localhost:8100/api/conversations -H 'content-type: application/json' \
-  -d '{"customer_id":"c1"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+  -d "{\"customer_id\":\"c1\",\"shop_id\":\"$SHOP\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
 
 # 2. 问物流（SSE 流式回复，模型调用 get_order mock）
 curl -N localhost:8100/api/conversations/$CONV/messages \
@@ -69,7 +73,8 @@ curl -N -X POST localhost:8100/api/conversations/$CONV/resume
 
 ## 待办（按优先级）
 
-- 知识检索（RAG）：UnifiedContentEmbedding 建模 + 文档切片（见研究笔记 §3.2）
+- ~~知识检索（RAG）~~ ✅ 已完成（ADR-0005）：pgvector + 三层切块管线 + 冲突队列 + 管理端 SPA（`admin-web/`，`npm run dev` 后访问 localhost:8200）
+- 召回评估集：合成召回集跑 recall@5，决定是否加混合检索/rerank/分数阈值
 - 坐席工作台前端 + 会话列表
 - 业务系统真实对接（订单/物流 API + 凭证管理，参考研究笔记 §3.3 两级锁）
 - 审核超时升级（SLA 内未审批自动升级）——AutoGPT 没有的部分（研究笔记 §5）

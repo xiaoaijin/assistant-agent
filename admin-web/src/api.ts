@@ -39,3 +39,7 @@ export function post(path: string, body?: unknown): Promise<unknown> {
 export function postForm(path: string, form: FormData): Promise<unknown> {
   return request(path, { method: "POST", body: form });
 }
+
+export function del(path: string): Promise<unknown> {
+  return request(path, { method: "DELETE" });
+}

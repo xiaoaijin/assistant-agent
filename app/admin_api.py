@@ -117,6 +117,8 @@ async def upload_document(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"嵌入服务调用失败：{e}")
 
 
 def _embedder(request: Request) -> Any:
