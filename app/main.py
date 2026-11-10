@@ -44,6 +44,7 @@ def _uuid_or_404(conv_id: str):
 
 class CreateConversationIn(BaseModel):
     customer_id: str
+    shop_id: str
     channel: str = "web"
 
 
@@ -53,7 +54,7 @@ class MessageIn(BaseModel):
 
 @app.post("/api/conversations")
 async def create_conversation(body: CreateConversationIn):
-    conv = await store.create_conversation(body.customer_id, body.channel)
+    conv = await store.create_conversation(body.customer_id, body.shop_id, body.channel)
     return {"id": str(conv["id"]), "status": conv["status"]}
 
 

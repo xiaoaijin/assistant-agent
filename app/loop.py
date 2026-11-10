@@ -130,7 +130,9 @@ async def _chat_step(conv_id: str, messages: list[dict], emit: Callable[[str], N
     return {"text": text, "tool_calls": tool_calls}
 
 
-async def execute_tool_call(conv_id: str, call: dict, emit: Callable[[str], None]) -> str:
+async def execute_tool_call(
+    conv_id: str, call: dict, emit: Callable[[str], None], embedder: Any | None = None,
+) -> str:
     """执行一个工具调用，恰好一次。返回 executed | parked | transferred。"""
     step_key = f"tool:{call['assistant_seq']}:{call['index']}"
     async with db.pool().acquire() as conn:
@@ -140,7 +142,7 @@ async def execute_tool_call(conv_id: str, call: dict, emit: Callable[[str], None
             if existing is not None:
                 result = dict(existing["step_result"])  # 重放历史，不重放执行
             else:
-                result = await _exec_tool(conn, conv_id, call["name"], call.get("arguments") or {})
+                result = await _exec_tool(conn, conv_id, call["name"], call.get("arguments") or {}, embedder)
                 await store.record(
                     conn, conv_id, "assistant", f"tool:{call['name']}",
                     detail=call.get("arguments") or {}, step=step_key, step_result=result,
@@ -159,9 +161,13 @@ async def execute_tool_call(conv_id: str, call: dict, emit: Callable[[str], None
     return "executed"
 
 
-async def _exec_tool(conn: Any, conv_id: str, name: str, args: dict) -> dict:
+async def _exec_tool(conn: Any, conv_id: str, name: str, args: dict, embedder: Any | None = None) -> dict:
     if name == "get_order":
         return tools.mock_get_order(args.get("order_id", ""))
+
+    if name == "search_knowledge":
+        conv = await store.get_conversation_conn(conn, conv_id)
+        return await tools.search_knowledge(str(conv["shop_id"]), args.get("query", ""), embedder)
 
     if name == "create_refund":
         amount = float(args.get("amount", 0))

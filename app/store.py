@@ -15,10 +15,10 @@ def _uuid(conv_id: str) -> uuid.UUID:
     return uuid.UUID(conv_id)
 
 
-async def create_conversation(customer_id: str, channel: str = "web") -> Any:
+async def create_conversation(customer_id: str, shop_id: str, channel: str = "web") -> Any:
     return await db.fetchrow(
-        "INSERT INTO conversations (customer_id, channel) VALUES ($1, $2) RETURNING *",
-        customer_id, channel,
+        "INSERT INTO conversations (customer_id, shop_id, channel) VALUES ($1, $2, $3) RETURNING *",
+        customer_id, db.uuid(shop_id), channel,
     )
 
 
@@ -42,7 +42,7 @@ async def add_message(conn: Any, conv_id: str, role: str, content: dict) -> int:
         WHERE conversation_id = $1
         RETURNING sequence
         """,
-        _uuid(conv_id), role, db.j(content),
+        _uuid(conv_id), role, content,
     )
     return row["sequence"]
 
@@ -153,7 +153,7 @@ async def record(
         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb)
         """,
         _uuid(conv_id), seq, actor, action,
-        db.j(detail or {}), step, db.j(step_result) if step_result is not None else None,
+        detail or {}, step, step_result,
     )
 
 
@@ -188,7 +188,7 @@ async def create_pending(
         INSERT INTO pending_approvals (id, conversation_id, tool_name, arguments, amount)
         VALUES ($1, $2, $3, $4::jsonb, $5)
         """,
-        approval_id, _uuid(conv_id), tool_name, db.j(arguments), amount,
+        approval_id, _uuid(conv_id), tool_name, arguments, amount,
     )
     return approval_id
 

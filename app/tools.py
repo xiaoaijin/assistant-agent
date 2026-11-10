@@ -35,6 +35,18 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "search_knowledge",
+            "description": "检索店铺知识库（FAQ、售后政策等）。顾客咨询政策、流程、规则类问题时调用；每次换一个更精确的问法可再次检索。",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "检索问句，用顾客问题的关键词改写"}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "transfer_to_human",
             "description": "将会话转人工坐席。顾客威胁投诉（如打 12315）、明确要求真人、涉及法律风险时调用。",
             "parameters": {
@@ -49,6 +61,24 @@ TOOL_SCHEMAS = [
 # ---- mock 业务数据（真实实现替换为业务系统 API + 凭证管理） ----
 
 MOCK_ORDER = {"order_id": "A1024", "status": "已发货", "refundable_amount": 500, "shipping": "预计明天送达"}
+
+
+async def search_knowledge(shop_id: str, query: str, embedder=None) -> dict:
+    """知识库检索：有命中返回片段，无命中返回固定文案（模型据此告知顾客/转人工）。"""
+    from .rag.embeddings import LiteLLMEmbedder
+    from .rag.search import semantic_search
+
+    results = await semantic_search(shop_id, query, embedder or LiteLLMEmbedder())
+    if not results:
+        return {"status": "no_results", "message": "知识库中无相关内容"}
+    return {
+        "status": "ok",
+        "results": [
+            {"title_path": r["title_path"], "text": r["text"],
+             "score": round(r["score"], 4), "page": r["page"]}
+            for r in results
+        ],
+    }
 
 
 def mock_get_order(order_id: str) -> dict:

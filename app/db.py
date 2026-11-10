@@ -134,9 +134,19 @@ CREATE INDEX IF NOT EXISTS ix_chunks_document ON knowledge_chunks (document_id);
 """
 
 
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    """JSONB 编解码：进出都是 Python dict（asyncpg 默认返回字符串）。"""
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=lambda v: json.dumps(v, ensure_ascii=False),
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+
+
 async def init_pool() -> None:
     global _pool
-    _pool = await asyncpg.create_pool(settings.database_url)
+    _pool = await asyncpg.create_pool(settings.database_url, init=_init_connection)
     async with _pool.acquire() as conn:
         await conn.execute(SCHEMA)
 
@@ -155,6 +165,14 @@ def pool() -> asyncpg.Pool:
 
 def j(v: Any) -> str:
     return json.dumps(v, ensure_ascii=False)
+
+
+def uuid(v: Any) -> Any:
+    if v is None:
+        return None
+    import uuid as _uuid
+
+    return v if isinstance(v, _uuid.UUID) else _uuid.UUID(str(v))
 
 
 async def fetch(sql: str, *args: Any) -> list[asyncpg.Record]:
