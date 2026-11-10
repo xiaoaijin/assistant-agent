@@ -100,6 +100,27 @@ async def test_document_create_and_chunk_preview(client):
     assert "七天无理由" in chunks[0]["text"]
 
 
+async def test_document_delete_removes_document_and_chunks(client):
+    shop = await create_shop("A")
+    await _mk_admin("a-admin", "pw", str(shop["id"]))
+    _auth(client, (await _login(client, "a-admin", "pw")).json()["token"])
+    app.state.embedder_factory = lambda: FakeEmbedder(
+        {"政策\n七天无理由退货适用于所有自营商品。": unit(0)}
+    )
+    doc_id = (
+        await client.post(
+            "/api/admin/knowledge/documents",
+            files={"file": ("policy.md", MD)},
+            data={"source_key": "p1", "title": "售后政策", "content_type": "policy", "shop_id": str(shop["id"])},
+        )
+    ).json()["document_id"]
+
+    resp = await client.delete(f"/api/admin/knowledge/documents/{doc_id}")
+    assert resp.status_code == 200
+    assert (await client.get("/api/admin/knowledge/documents")).json() == []
+    assert (await client.get(f"/api/admin/knowledge/documents/{doc_id}/chunks")).status_code == 404
+
+
 async def _seed_conflict(shop_id: str) -> None:
     base = unit(0)
     await ingest_document(

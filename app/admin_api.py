@@ -129,6 +129,18 @@ def _embedder(request: Request) -> Any:
     return LiteLLMEmbedder()
 
 
+@router.delete("/knowledge/documents/{document_id}")
+async def delete_document(document_id: str, admin: dict = Depends(_current_admin)) -> dict:
+    doc = await get_document(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    _visible_shop_ids(admin, str(doc["shop_id"]))
+    async with db.pool().acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM knowledge_documents WHERE id = $1", db.uuid(document_id))
+    return {"deleted": True}
+
+
 @router.get("/knowledge/documents/{document_id}/chunks")
 async def document_chunks(document_id: str, admin: dict = Depends(_current_admin)) -> list[dict]:
     doc = await get_document(document_id)
