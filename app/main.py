@@ -3,6 +3,7 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -158,14 +159,23 @@ async def resume_conversation(conv_id: str):
 @app.get("/api/approvals")
 async def list_approvals(status: str | None = None):
     rows = await store.list_pendings(status)
+    now = datetime.now(timezone.utc)
     return [
         {
             "id": r["id"], "conversation_id": str(r["conversation_id"]),
             "tool_name": r["tool_name"], "arguments": r["arguments"],
             "amount": float(r["amount"] or 0), "status": r["status"], "owner": r["owner"],
+            "sla_deadline": r["sla_deadline"].isoformat() if r["sla_deadline"] else None,
+            "escalated": state.escalation_status(now, r["sla_deadline"], r["escalated_at"]) == "escalated",
         }
         for r in rows
     ]
+
+
+@app.post("/api/approvals/sweep")
+async def sweep_approvals():
+    """超 SLA 待审批项升级（坐席工作台/定时任务触发；幂等）。"""
+    return await approvals.sweep_overdue(datetime.now(timezone.utc))
 
 
 @app.post("/api/approvals/{approval_id}/approve")

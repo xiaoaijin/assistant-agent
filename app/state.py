@@ -17,6 +17,18 @@ def quota_decision(amount: float, quota: float) -> str:
     return "execute" if amount <= quota else "review"
 
 
+def escalation_status(now, sla_deadline, escalated_at) -> str:
+    """审批 SLA 判定：超时未升级 → overdue，升级过 → escalated。
+
+    sla_deadline 为空（旧数据/未设 SLA）永不升级。
+    """
+    if escalated_at is not None:
+        return "escalated"
+    if sla_deadline is None or now < sla_deadline:
+        return "on_time"
+    return "overdue"
+
+
 def can_handback(conv_status: str, pending_status: str | None) -> tuple[bool, str]:
     """坐席交还规则：只在人工处理中、且没有未决待审批项时允许。"""
     if conv_status != "transferred":

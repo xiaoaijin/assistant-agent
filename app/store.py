@@ -185,12 +185,20 @@ async def create_pending(
     approval_id = f"PA-{seq}"
     await conn.execute(
         """
-        INSERT INTO pending_approvals (id, conversation_id, tool_name, arguments, amount)
-        VALUES ($1, $2, $3, $4::jsonb, $5)
+        INSERT INTO pending_approvals
+            (id, conversation_id, tool_name, arguments, amount, sla_deadline)
+        VALUES ($1, $2, $3, $4::jsonb, $5, now() + make_interval(mins => $6))
         """,
         approval_id, _uuid(conv_id), tool_name, arguments, amount,
+        _sla_minutes(),
     )
     return approval_id
+
+
+def _sla_minutes() -> int:
+    from .config import settings
+
+    return settings.approval_sla_minutes
 
 
 async def get_pending(approval_id: str) -> Any:

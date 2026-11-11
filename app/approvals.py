@@ -97,3 +97,42 @@ async def handback(conv_id: str) -> dict:
             )
             await store.record(conn, conv_id, "seat", "hand_back", {})
     return {"status": "ai_serving"}
+
+
+async def sweep_overdue(now) -> list[str]:
+    """超 SLA 未决待审批项升级：标记 escalated_at + 动作留痕，幂等。
+
+    升级不改变决策权：status 保持 pending，坐席仍是决策人（不自动批准/拒绝）。
+    幂等落点在条件 UPDATE（escalated_at IS NULL）：并发清扫各自原子认领，留痕恰好一次。
+    """
+    overdue = await db.fetch(
+        """
+        SELECT id, conversation_id FROM pending_approvals
+        WHERE status = 'pending' AND sla_deadline IS NOT NULL
+              AND sla_deadline <= $1 AND escalated_at IS NULL
+        ORDER BY sla_deadline
+        """,
+        now,
+    )
+    escalated = []
+    for row in overdue:
+        conv_id = str(row["conversation_id"])
+        async with db.pool().acquire() as conn:
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", conv_id)
+                claimed = await conn.fetchrow(
+                    """
+                    UPDATE pending_approvals SET escalated_at = $2
+                    WHERE id = $1 AND escalated_at IS NULL
+                    RETURNING id, sla_deadline
+                    """,
+                    row["id"], now,
+                )
+                if claimed is None:
+                    continue
+                await store.record(
+                    conn, conv_id, "system", "sla_escalate",
+                    {"approval_id": claimed["id"], "deadline": claimed["sla_deadline"].isoformat()},
+                )
+                escalated.append(claimed["id"])
+    return escalated

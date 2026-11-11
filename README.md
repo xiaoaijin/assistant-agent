@@ -74,9 +74,9 @@ curl -N -X POST localhost:8100/api/conversations/$CONV/resume
 ## 待办（按优先级）
 
 - ~~知识检索（RAG）~~ ✅ 已完成（ADR-0005）：pgvector + 三层切块管线 + 冲突队列 + 管理端 SPA（`admin-web/`，`npm run dev` 后访问 localhost:8200）
-- 召回评估集：合成召回集跑 recall@5，决定是否加混合检索/rerank/分数阈值
+- 召回评估集：合成召回集跑 recall@5，决定是否加混合检索/rerank/分数阈值（等 DASHSCOPE_API_KEY）
 - 坐席工作台前端 + 会话列表
 - 业务系统真实对接（订单/物流 API + 凭证管理，参考研究笔记 §3.3 两级锁）
-- 审核超时升级（SLA 内未审批自动升级）——AutoGPT 没有的部分（研究笔记 §5）
+- ~~审核超时升级~~ ✅ 已完成：`pending_approvals.sla_deadline/escalated_at` + `approvals.sweep_overdue`（标记升级、不自动批准，幂等）+ `POST /api/approvals/sweep`（定时任务触发点）；SLA 由 `approval_sla_minutes` 配置
 - 定时任务（催付/回访）：APScheduler + SQL jobstore 模式
 - 消息级断线续传（Redis Stream 检查点重放，研究笔记 §3.1）

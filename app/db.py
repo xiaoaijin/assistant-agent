@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
     amount          NUMERIC(12,2),
     status          TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected | executed
     owner           TEXT NOT NULL DEFAULT 'conversation',  -- conversation | seat
+    sla_deadline    TIMESTAMPTZ,                       -- 审批 SLA 截止；空 = 永不升级
+    escalated_at    TIMESTAMPTZ,                       -- 超时升级标记；升级语义见 approvals.sweep_overdue
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     decided_at      TIMESTAMPTZ
 );
@@ -135,6 +137,8 @@ CREATE INDEX IF NOT EXISTS ix_chunks_document ON knowledge_chunks (document_id);
 
 -- 已存在的库补列（新库由上面的 CREATE TABLE 直接带全）
 ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS conflict_with JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE pending_approvals ADD COLUMN IF NOT EXISTS sla_deadline TIMESTAMPTZ;
+ALTER TABLE pending_approvals ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ;
 """
 
 

@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     default_refund_quota: float = 100.0
 
+    # 审批 SLA：待审批项创建起算（日历分钟数，不做工作时间），超时升级见 approvals.sweep_overdue
+    approval_sla_minutes: int = 60
+
     # RAG（ADR-0005）：通义 text-embedding-v3，1024 维，经 LiteLLM
     embedding_model: str = "dashscope/text-embedding-v3"
     embedding_dim: int = 1024

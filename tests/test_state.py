@@ -3,7 +3,17 @@
 对应原型 proto/loop-state-model 四个引导场景的可持久化形态。
 """
 
-from app.state import can_handback, derive_state, is_complaint, quota_decision
+from datetime import datetime, timedelta, timezone
+
+from app.state import (
+    can_handback,
+    derive_state,
+    escalation_status,
+    is_complaint,
+    quota_decision,
+)
+
+_NOW = datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc)
 
 
 def test_quota_decision_follows_rule():
@@ -17,6 +27,27 @@ def test_complaint_keywords():
     assert is_complaint("再不解决我就打12315")
     assert is_complaint("我要投诉你们")
     assert not is_complaint("麻烦帮我看下物流")
+
+
+def test_escalation_status_before_deadline_is_on_time():
+    deadline = _NOW + timedelta(minutes=30)
+    assert escalation_status(_NOW, deadline, None) == "on_time"
+
+
+def test_escalation_status_past_deadline_is_overdue():
+    deadline = _NOW - timedelta(minutes=1)
+    assert escalation_status(_NOW, deadline, None) == "overdue"
+
+
+def test_escalation_status_once_escalated_stays_escalated():
+    deadline = _NOW - timedelta(minutes=10)
+    escalated_at = _NOW - timedelta(minutes=5)
+    assert escalation_status(_NOW, deadline, escalated_at) == "escalated"
+
+
+def test_escalation_status_without_deadline_never_escalates():
+    # 旧数据 / 未设 SLA：永远 on_time，清扫器跳过
+    assert escalation_status(_NOW, None, None) == "on_time"
 
 
 def _actions(*items):
