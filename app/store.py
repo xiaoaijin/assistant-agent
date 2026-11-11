@@ -26,6 +26,29 @@ async def get_conversation(conv_id: str) -> Any:
     return await db.fetchrow("SELECT * FROM conversations WHERE id = $1", _uuid(conv_id))
 
 
+async def list_conversations(status: str | None = None) -> list[Any]:
+    """坐席工作台列表：按最近消息时间倒序（无消息用 created_at），带未决待审批项摘要。"""
+    return await db.fetch(
+        """
+        SELECT c.id, c.customer_id, c.shop_id, c.channel, c.status, c.created_at,
+               MAX(m.created_at) AS last_message_at,
+               p.id AS pending_id, p.amount AS pending_amount,
+               p.sla_deadline AS pending_sla_deadline, p.escalated_at AS pending_escalated_at
+        FROM conversations c
+        LEFT JOIN messages m ON m.conversation_id = c.id
+        LEFT JOIN LATERAL (
+            SELECT * FROM pending_approvals pa
+            WHERE pa.conversation_id = c.id AND pa.status = 'pending'
+            ORDER BY created_at DESC LIMIT 1
+        ) p ON true
+        WHERE ($1::text IS NULL OR c.status = $1)
+        GROUP BY c.id, p.id, p.amount, p.sla_deadline, p.escalated_at
+        ORDER BY COALESCE(MAX(m.created_at), c.created_at) DESC
+        """,
+        status,
+    )
+
+
 async def get_conversation_conn(conn: Any, conv_id: str) -> Any:
     return await conn.fetchrow("SELECT * FROM conversations WHERE id = $1", _uuid(conv_id))
 

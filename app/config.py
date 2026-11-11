@@ -28,5 +28,8 @@ class Settings(BaseSettings):
     search_min_score: float | None = None  # 余弦阈值，召回评估后启用
     admin_secret: str = "dev-admin-secret-change-me"
 
+    # SSE 检查点（消息级断线续传）：Redis Stream，每回合一个 key
+    redis_url: str = "redis://localhost:6379/0"
+
 
 settings = Settings()

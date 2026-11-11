@@ -29,7 +29,7 @@
 ## 运行
 
 ```bash
-docker compose up -d db          # Postgres 16（pgvector 镜像）
+docker compose up -d db redis    # Postgres 16（pgvector）+ Redis 7（SSE 检查点）
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env             # 配置任一 LiteLLM 支持的模型与 key
@@ -74,9 +74,9 @@ curl -N -X POST localhost:8100/api/conversations/$CONV/resume
 ## 待办（按优先级）
 
 - ~~知识检索（RAG）~~ ✅ 已完成（ADR-0005）：pgvector + 三层切块管线 + 冲突队列 + 管理端 SPA（`admin-web/`，`npm run dev` 后访问 localhost:8200）
+- ~~审核超时升级~~ ✅ 已完成：`pending_approvals.sla_deadline/escalated_at` + `approvals.sweep_overdue`（标记升级、不自动批准，幂等）；SLA 由 `approval_sla_minutes` 配置
+- ~~坐席工作台前端~~ ✅ 已完成：`agent-web/`（`npm run dev` 后访问 localhost:8300）——会话列表（状态筛选 + 待审批角标 + 超时升级红标）、会话详情（消息 + 动作留痕 + 交还）、审批队列（升级置顶 + SLA 倒计时 + 批准/拒绝）
+- ~~定时任务（催付/回访）~~ ✅ 已完成：APScheduler + SQLAlchemy jobstore（同一个 Postgres，重启恢复、misfire 宽限补跑）；SLA 每 60s 自动清扫；`POST /api/conversations/{id}/reminders` 排程催付/回访提醒（到点发助手消息，actions.step 幂等）
+- ~~消息级断线续传~~ ✅ 已完成：SSE delta 检查点到 Redis Stream（每回合一个 key）；`GET /api/conversations/{id}/stream` 带 `Last-Event-ID` 重连，重放缺失事件并跟随到 done；Redis 不可用时静默退化为全量拉历史
 - 召回评估集：合成召回集跑 recall@5，决定是否加混合检索/rerank/分数阈值（等 DASHSCOPE_API_KEY）
-- 坐席工作台前端 + 会话列表
 - 业务系统真实对接（订单/物流 API + 凭证管理，参考研究笔记 §3.3 两级锁）
-- ~~审核超时升级~~ ✅ 已完成：`pending_approvals.sla_deadline/escalated_at` + `approvals.sweep_overdue`（标记升级、不自动批准，幂等）+ `POST /api/approvals/sweep`（定时任务触发点）；SLA 由 `approval_sla_minutes` 配置
-- 定时任务（催付/回访）：APScheduler + SQL jobstore 模式
-- 消息级断线续传（Redis Stream 检查点重放，研究笔记 §3.1）

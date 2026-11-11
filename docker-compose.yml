@@ -10,5 +10,14 @@ services:
     volumes:
       - assistant_pgdata:/var/lib/postgresql/data
 
+  # SSE 检查点（消息级断线续传）：每回合一个 Stream，Last-Event-ID 重连重放
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - assistant_redisdata:/data
+
 volumes:
   assistant_pgdata:
+  assistant_redisdata:
