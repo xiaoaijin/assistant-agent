@@ -1,0 +1,52 @@
+# 合成召回评估集：query → 期望命中的文档（top-5 内含该文档任一 chunk 即命中）
+# 问法刻意与原文措辞不同（顾客真实问法是转述不是引用）
+cases:
+  # 退货政策
+  - query: 我买的东西不想要了，能退吗
+    expect_source_key: 退货政策
+  - query: 收货好几天了还可以无理由退货么
+    expect_source_key: 退货政策
+  - query: 生鲜坏了一半怎么退款
+    expect_source_key: 退货政策
+  - query: 商品拆封了还能退货吗，要扣钱吗
+    expect_source_key: 退货政策
+  - query: 东西有质量问题运费谁出
+    expect_source_key: 退货政策
+  - query: 衣服吊牌剪了还能退吗
+    expect_source_key: 退货政策
+
+  # 运费说明
+  - query: 寄到新疆邮费多少
+    expect_source_key: 运费说明
+  - query: 多少钱可以免运费
+    expect_source_key: 运费说明
+  - query: 退货的快递费我自己出吗
+    expect_source_key: 运费说明
+  - query: 续重怎么收费
+    expect_source_key: 运费说明
+
+  # FAQ
+  - query: 下单后什么时候发货呀
+    expect_source_key: faq
+  - query: 地址填错了还能改吗
+    expect_source_key: faq
+  - query: 你们支持货到付款吗
+    expect_source_key: faq
+  - query: 怎么开发票
+    expect_source_key: faq
+  - query: 两张优惠券能一起用吗
+    expect_source_key: faq
+  - query: 你们家东西是正品吗
+    expect_source_key: faq
+
+  # 会员权益
+  - query: 怎么才能升级黄金会员
+    expect_source_key: 会员权益
+  - query: 积分能不能当钱花
+    expect_source_key: 会员权益
+  - query: 积分会过期吗
+    expect_source_key: 会员权益
+  - query: 会员日是哪天有什么活动
+    expect_source_key: 会员权益
+  - query: 钻石会员有什么特权
+    expect_source_key: 会员权益
